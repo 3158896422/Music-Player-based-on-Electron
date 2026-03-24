@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>QQ 音乐歌词测试</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+  <h1>QQ 音乐歌词获取测试</h1>
+  <div id="result"></div>
+  
+  <script>
+    const songmid = '0042QY5u197a0F0042QY5u'; // 测试歌曲：周杰伦 - 晴天
+    const resultDiv = document.getElementById('result');
+    
+    function log(message) {
+      resultDiv.innerHTML += `<p>${message}</p>`;
+      console.log(message);
+    }
+    
+    async function testQQMusicLyric() {
+      log('<h2>步骤 1: 获取歌曲详情（获取 songID）</h2>');
+      
+      // 步骤 1: 获取歌曲详情
+      const musicInfoUrl = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+      const musicInfoBody = {
+        comm: {
+          ct: '19',
+          cv: '1859',
+          uin: '0',
+        },
+        req: {
+          module: 'music.pf_song_detail_svr',
+          method: 'get_song_detail_yqq',
+          param: {
+            song_type: 0,
+            song_mid: songmid,
+          },
+        },
+      };
+      
+      try {
+        const musicInfoResponse = await axios.post(musicInfoUrl, musicInfoBody, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        });
+        
+        log(`请求 URL: ${musicInfoUrl}`);
+        log(`请求参数：${JSON.stringify(musicInfoBody, null, 2)}`);
+        
+        const musicInfoData = musicInfoResponse.data;
+        log(`<h3>响应数据:</h3><pre>${JSON.stringify(musicInfoData, null, 2)}</pre>`);
+        
+        const songId = musicInfoData?.req?.data?.track_info?.id || musicInfoData?.req?.data?.track_info?.song?.id;
+        
+        if (!songId) {
+          log('<p style="color: red;">❌ 无法获取 songID</p>');
+          return;
+        }
+        
+        log(`<p style="color: green;">✅ 获取到 songID: ${songId}</p>`);
+        
+        // 步骤 2: 获取歌词
+        log('<h2>步骤 2: 获取歌词</h2>');
+        
+        const lyricUrl = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+        const lyricBody = {
+          comm: {
+            ct: '19',
+            cv: '1859',
+            uin: '0',
+          },
+          req: {
+            method: 'GetPlayLyricInfo',
+            module: 'music.musichallSong.PlayLyricInfo',
+            param: {
+              format: 'json',
+              crypt: 0,  // 尝试不加密
+              ct: 19,
+              cv: 1873,
+              interval: 0,
+              lrc_t: 0,
+              qrc: 0,    // 尝试不获取 QRC，只获取普通 LRC
+              qrc_t: 0,
+              roma: 0,
+              roma_t: 0,
+              songID: songId,
+              trans: 0,
+              trans_t: 0,
+              type: -1,
+            },
+          },
+        };
+        
+        const lyricResponse = await axios.post(lyricUrl, lyricBody, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        });
+        
+        log(`请求 URL: ${lyricUrl}`);
+        log(`请求参数：${JSON.stringify(lyricBody, null, 2)}`);
+        
+        const lyricData = lyricResponse.data;
+        log(`<h3>响应数据:</h3><pre>${JSON.stringify(lyricData, null, 2)}</pre>`);
+        
+        if (lyricData?.req?.code === 0) {
+          const lyric = lyricData.req.data?.lyric || '';
+          const trans = lyricData.req.data?.trans || '';
+          
+          if (lyric) {
+            log('<p style="color: green;">✅ 获取到歌词成功！</p>');
+            log(`<h3>歌词内容 (base64 编码):</h3><pre>${lyric.substring(0, 500)}...</pre>`);
+            
+            // 尝试解码 base64
+            try {
+              const decoded = atob(lyric);
+              log(`<h3>解码后的歌词:</h3><pre>${decoded.substring(0, 1000)}...</pre>`);
+            } catch (e) {
+              log(`<p style="color: orange;">⚠️ Base64 解码失败：${e.message}</p>`);
+            }
+          } else {
+            log('<p style="color: red;">❌ 歌词内容为空</p>');
+          }
+        } else {
+          log(`<p style="color: red;">❌ 请求失败：code = ${lyricData?.req?.code}</p>`);
+        }
+        
+      } catch (error) {
+        log(`<p style="color: red;">❌ 请求失败：${error.message}</p>`);
+        if (error.response) {
+          log(`<h3>响应状态：${error.response.status}</h3>`);
+          log(`<pre>${JSON.stringify(error.response.data, null, 2)}</pre>`);
+        }
+      }
+    }
+    
+    // 页面加载后自动执行
+    testQQMusicLyric();
+  </script>
+</body>
+</html>

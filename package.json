@@ -1,0 +1,36 @@
+{
+  "name": "music-player",
+  "version": "1.0.0",
+  "description": "Apple Music风格的本地音乐播放器",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "keywords": [
+    "music",
+    "player",
+    "electron"
+  ],
+  "author": "Music Player",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0"
+  },
+  "dependencies": {
+    "@lrc-player/core": "^1.1.5",
+    "@lrc-player/parse": "^1.0.0",
+    "axios": "^1.13.6",
+    "crypto-js": "^4.2.0",
+    "iconv-lite": "^0.7.2",
+    "image-size": "^2.0.2",
+    "music-metadata": "^7.14.0",
+    "needle": "^3.5.0",
+    "NeteaseCloudMusicApi": "^4.30.0",
+    "node-id3": "^0.2.9",
+    "node-taglib-sharp": "^6.0.1",
+    "pinia": "^2.3.1",
+    "vue": "^3.5.30",
+    "vue-audio-visual": "^3.1.0"
+  }
+}
