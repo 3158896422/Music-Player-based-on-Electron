@@ -5,7 +5,11 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
   },
   "keywords": [
     "music",
@@ -15,7 +19,9 @@
   "author": "Music Player",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^28.0.0"
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1"
   },
   "dependencies": {
     "@lrc-player/core": "^1.1.5",
@@ -32,5 +38,40 @@
     "pinia": "^2.3.1",
     "vue": "^3.5.30",
     "vue-audio-visual": "^3.1.0"
+  },
+  "build": {
+    "appId": "com.musicplayer.app",
+    "productName": "Music Player",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!log/**",
+      "!sources/**",
+      "!**/*.md",
+      "!**/*.class",
+      "!**/*.java"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "fengmian.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Music Player"
+    }
   }
 }

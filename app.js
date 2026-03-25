@@ -125,6 +125,9 @@ const app = createApp({
     const isSearching = ref(false);
     let sourceSandbox = null;
     
+    // 状态栏焦点跟踪 - 用于控制空格键是否触发播放暂停
+    const isPlayerBarFocused = ref(false);
+    
     // 加载默认音源
     const loadDefaultSources = async () => {
       try {
@@ -3119,12 +3122,9 @@ const app = createApp({
         await audio.play();
         isPlaying.value = true;
         
-        // 只有从搜索结果播放时才使用 builtin 上下文
-        // 从 favorites/recent/playlist 播放时保持原有上下文，确保播放列表不会跳转
-        const isFromPlaylist = ['favorites', 'recent', 'playlist'].includes(currentPlayContext.value);
-        if (!isFromPlaylist) {
-          currentPlayContext.value = 'builtin';
-        }
+        // 始终使用 builtin 上下文，确保封面能正确更新
+        // 这样可以解决从歌单播放后，再去搜索播放时封面不更新的问题
+        currentPlayContext.value = 'builtin';
         
         // 先清空再赋值，强制触发响应式更新
         currentBuiltinSong.value = null;
@@ -3258,8 +3258,11 @@ const app = createApp({
       
       switch(e.code) {
         case 'Space':
-          e.preventDefault();
-          togglePlay();
+          // 只有在全屏模式或状态栏获得焦点时才允许空格键控制播放暂停
+          if (showFullscreen.value || isPlayerBarFocused.value) {
+            e.preventDefault();
+            togglePlay();
+          }
           break;
         case 'ArrowLeft':
           if (audio && audio.currentTime > 5) {
@@ -3290,6 +3293,24 @@ const app = createApp({
 
     onMounted(async () => {
       document.addEventListener('keydown', handleKeyDown);
+      
+      // 监听状态栏点击事件，设置焦点标志
+      const playerBar = document.querySelector('.player-bar');
+      if (playerBar) {
+        playerBar.addEventListener('click', () => {
+          isPlayerBarFocused.value = true;
+        });
+        playerBar.addEventListener('mouseenter', () => {
+          isPlayerBarFocused.value = true;
+        });
+      }
+      
+      // 监听全局点击，当点击非状态栏区域时移除焦点
+      document.addEventListener('click', (e) => {
+        if (playerBar && !playerBar.contains(e.target)) {
+          isPlayerBarFocused.value = false;
+        }
+      });
       
       // 先初始化 userApiRendererEvent
       userApiRendererEvent.init();

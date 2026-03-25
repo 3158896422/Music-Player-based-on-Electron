@@ -26,6 +26,8 @@ function loadQrcDecode() {
 function createWindow() {
   console.log('开始创建窗口');
 
+  const iconPath = path.join(__dirname, 'fengmian.ico');
+  
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -33,6 +35,7 @@ function createWindow() {
     minHeight: 700,
     frame: false,
     backgroundColor: '#000000',
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -67,10 +70,10 @@ function createWindow() {
 
 function createTray() {
   try {
-    const trayIcon = path.join(__dirname, 'assets', 'tray-icon.png');
+    const trayIconPath = path.join(__dirname, 'fengmian.ico');
     
-    if (fs.existsSync(trayIcon)) {
-      tray = new Tray(trayIcon);
+    if (fs.existsSync(trayIconPath)) {
+      tray = new Tray(trayIconPath);
     } else {
       tray = new Tray(nativeImage.createEmpty());
     }
