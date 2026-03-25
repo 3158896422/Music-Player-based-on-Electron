@@ -43,10 +43,12 @@
     "appId": "com.musicplayer.app",
     "productName": "Music Player",
     "directories": {
-      "output": "dist"
+      "output": "build-output-20240325"
     },
     "files": [
       "**/*",
+      "!build-output-20240325/**",
+      "!release/**",
       "!dist/**",
       "!log/**",
       "!sources/**",

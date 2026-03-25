@@ -11,6 +11,27 @@ let mainWindow;
 let tray;
 let qrc_decode;
 
+// 单实例锁 - 确保应用只运行一个实例
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // 如果没有获得锁，说明已经有一个实例在运行，直接退出
+  console.log('[main] 已有实例运行，退出当前进程');
+  app.quit();
+} else {
+  // 当用户再次启动应用时，将窗口显示出来
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    console.log('[main] 检测到第二个实例启动，恢复主窗口');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // 加载 qrc_decode 原生模块
 function loadQrcDecode() {
   try {
