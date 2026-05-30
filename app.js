@@ -125,6 +125,9 @@ const app = createApp({
     const isSearching = ref(false);
     let sourceSandbox = null;
     
+    // 异步播放操作取消令牌
+    let pendingPlayToken = { cancelled: false };
+    
     // 状态栏焦点跟踪 - 用于控制空格键是否触发播放暂停
     const isPlayerBarFocused = ref(false);
     
@@ -2483,6 +2486,7 @@ const app = createApp({
             saveSourcesToStorage();
             
             // 重新注册所有有效音源到 main.js
+            let firstSourceSet = false;
             for (const source of validSources) {
               console.log('[app.js] 注册音源:', source.name);
               // 创建可序列化的音源对象
@@ -2507,7 +2511,13 @@ const app = createApp({
                   // 更新 sourceManager 状态
                   sourceManager.currentSource = source;
                   sourceManager.isReady = true;
-                  currentSourceId.value = source.id;
+                  
+                  // 只在第一个音源加载成功时设置为当前音源
+                  if (!firstSourceSet) {
+                    currentSourceId.value = source.id;
+                    firstSourceSet = true;
+                    console.log('[app.js] 设置默认音源:', source.name);
+                  }
                 } catch (loadError) {
                   console.error('[app.js] 加载音源失败:', source.name, loadError.message);
                   // 继续加载其他音源，不要因为一个失败而停止
@@ -2857,17 +2867,15 @@ const app = createApp({
 
     // 播放音源歌曲
     const playSourceSong = async (song) => {
-      // 防抖限制：1 秒内只能切一次歌
-      const now = Date.now();
-      if (now - lastPlayTime < PLAY_INTERVAL_LIMIT) {
-        console.log('切歌过于频繁，已忽略本次请求');
-        return;
-      }
-      lastPlayTime = now;
+      // 取消之前的播放请求
+      pendingPlayToken.cancelled = true;
+      const currentToken = { cancelled: false };
+      pendingPlayToken = currentToken;
 
       // 优先检查是否已下载，如果已下载则播放本地文件
       if (!song.path) {
         const downloaded = await isSongDownloaded(song);
+        if (currentToken.cancelled) return;
         if (downloaded && song.downloadedPath) {
           playLocalFile(song.downloadedPath, song);
           return;
@@ -2886,6 +2894,7 @@ const app = createApp({
             type: settings.value.playQuality,
             musicInfo: song
           });
+          if (currentToken.cancelled) return;
           song.url = urlData;
           urlObtained = true;
         } catch (firstError) {
@@ -2894,6 +2903,7 @@ const app = createApp({
 
         if (!urlObtained) {
           for (const s of importedSources.value) {
+            if (currentToken.cancelled) return;
             if (triedSources.has(s.id)) continue;
             triedSources.add(s.id);
             try {
@@ -2904,6 +2914,7 @@ const app = createApp({
                 type: settings.value.playQuality,
                 musicInfo: song
               });
+              if (currentToken.cancelled) return;
               song.url = urlData;
               urlObtained = true;
               break;
@@ -2914,12 +2925,14 @@ const app = createApp({
         }
 
         if (!urlObtained) {
+          if (currentToken.cancelled) return;
           showAlert('所有音源都无法获取该歌曲的播放链接', '播放失败');
           return;
         }
       }
       
-      if (!song.url) {
+      if (!song.url || typeof song.url !== 'string' || !/^https?:/.test(song.url)) {
+        if (currentToken.cancelled) return;
         showAlert('该歌曲没有可用的播放URL，请尝试更换音源或音乐平台', '播放错误');
         return;
       }
@@ -2928,17 +2941,19 @@ const app = createApp({
       // QQ音乐(tx)服务器不支持HEAD，改用GET
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         const fetchMethod = song.source === 'tx' ? 'GET' : 'HEAD';
         const response = await fetch(song.url, { method: fetchMethod, signal: controller.signal });
         clearTimeout(timeoutId);
         if (!response.ok) {
+          if (currentToken.cancelled) return;
           showAlert('该歌曲播放链接无效（状态码: ' + response.status + '），请尝试更换音源', '播放错误');
           return;
         }
       } catch (fetchError) {
+        if (currentToken.cancelled) return;
         if (fetchError.name === 'AbortError') {
-          showAlert('播放链接响应超时（10秒），请尝试更换音源或音乐平台', '播放错误');
+          showAlert('播放链接响应超时（5秒），请尝试更换音源或音乐平台', '播放错误');
         } else {
           showAlert('无法连接到播放服务器，请尝试更换音源或音乐平台', '播放错误');
         }
@@ -2987,14 +3002,13 @@ const app = createApp({
 
       audio.onerror = (e) => {
         console.error('音频播放错误:', e);
-        // 播放失败时不自动切换到其他歌曲
       };
 
       try {
         await audio.play();
+        if (currentToken.cancelled) return;
         isPlaying.value = true;
         currentPlayContext.value = 'builtin';
-        // 先清空再赋值，强制触发响应式更新
         currentBuiltinSong.value = null;
         await nextTick();
         currentBuiltinSong.value = song;
@@ -3002,8 +3016,8 @@ const app = createApp({
         // 加载歌词
         loadBuiltinLyrics(song);
       } catch (error) {
+        if (currentToken.cancelled) return;
         console.error('播放失败:', error);
-        // 去掉弹窗提示，只输出日志
       }
     };
     
@@ -3070,18 +3084,17 @@ const app = createApp({
     };
 
     // 播放内置搜索歌曲
-    const playBuiltinSong = async (song) => {
-      // 防抖限制：1 秒内只能切一次歌
-      const now = Date.now();
-      if (now - lastPlayTime < PLAY_INTERVAL_LIMIT) {
-        return;
-      }
-      lastPlayTime = now;
+    const playBuiltinSong = async (song, onPlaySuccess) => {
+      // 取消之前的播放请求
+      pendingPlayToken.cancelled = true;
+      const currentToken = { cancelled: false };
+      pendingPlayToken = currentToken;
 
       // 获取封面（酷狗音乐需要单独获取）
       if (!song.cover && song.source === 'kg') {
         try {
           const pic = await musicSdk.getPic(song);
+          if (currentToken.cancelled) return;
           if (pic) {
             song.cover = pic;
           }
@@ -3100,15 +3113,19 @@ const app = createApp({
         const currentId = currentSourceId.value;
         if (currentId) triedSources.add(currentId);
 
-        const validateUrl = async (url, songSource) => {
+        const validateUrl = async (url) => {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
-            const fetchMethod = songSource === 'tx' ? 'GET' : 'HEAD';
-            const response = await fetch(url, { method: fetchMethod, signal: controller.signal, redirect: 'follow' });
+            const response = await fetch(url, { method: 'HEAD', signal: controller.signal, redirect: 'follow' });
             clearTimeout(timeoutId);
             if (!response.ok) {
               console.warn('[playBuiltinSong] URL无效, 状态码:', response.status);
+              return false;
+            }
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json') || contentType.includes('text/html')) {
+              console.warn('[playBuiltinSong] URL返回了非音频内容:', contentType);
               return false;
             }
             return true;
@@ -3131,7 +3148,7 @@ const app = createApp({
           if (typeof urlData !== 'string' || !/^https?:/.test(urlData)) {
             throw new Error('音源返回了无效的URL格式: ' + typeof urlData);
           }
-          const isValid = await validateUrl(urlData, songSrc);
+          const isValid = await validateUrl(urlData);
           if (!isValid) {
             throw new Error('音源返回的URL不可达');
           }
@@ -3140,6 +3157,7 @@ const app = createApp({
 
         try {
           song.url = await tryGetUrl(song.source, song.source);
+          if (currentToken.cancelled) return;
           urlObtained = true;
         } catch (firstError) {
           console.warn('[playBuiltinSong] 当前音源失败:', firstError.message, '，尝试其他音源');
@@ -3148,6 +3166,7 @@ const app = createApp({
         if (!urlObtained) {
           console.log('[playBuiltinSong] 开始回退循环，音源总数:', importedSources.value.length);
           for (const s of importedSources.value) {
+            if (currentToken.cancelled) return;
             console.log('[playBuiltinSong] 检查音源:', s.name, 'ID:', s.id, '已尝试:', triedSources.has(s.id));
             if (triedSources.has(s.id)) {
               console.log('[playBuiltinSong] 跳过已尝试的音源:', s.name);
@@ -3163,11 +3182,13 @@ const app = createApp({
                 type: settings.value.playQuality,
                 musicInfo: song
               });
+              if (currentToken.cancelled) return;
               console.log('[playBuiltinSong] 音源', s.name, 'urlData 类型:', typeof urlData);
               if (typeof urlData !== 'string' || !/^https?:/.test(urlData)) {
                 throw new Error('音源返回了无效的URL格式');
               }
-              const isValid = await validateUrl(urlData, song.source);
+              const isValid = await validateUrl(urlData);
+              if (currentToken.cancelled) return;
               if (!isValid) {
                 throw new Error('音源返回的URL不可达');
               }
@@ -3182,12 +3203,14 @@ const app = createApp({
         }
 
         if (!urlObtained) {
+          if (currentToken.cancelled) return;
           showAlert('所有音源都无法获取该歌曲的播放链接', '播放失败');
           return;
         }
       }
 
       if (!song.url || typeof song.url !== 'string' || !/^https?:/.test(song.url)) {
+        if (currentToken.cancelled) return;
         showAlert('获取到的播放链接无效，请尝试更换音源或音乐平台', '播放错误');
         return;
       }
@@ -3242,11 +3265,17 @@ const app = createApp({
 
       try {
         await audio.play();
+        if (currentToken.cancelled) return;
         isPlaying.value = true;
         
         currentBuiltinSong.value = null;
         await nextTick();
         currentBuiltinSong.value = song;
+
+        // 执行播放成功后的回调（例如设置当前索引）
+        if (onPlaySuccess) {
+          onPlaySuccess();
+        }
 
         // 更新最近播放列表（从最近播放列表播放时不更新）
         if (currentPlayContext.value !== 'recent') {
@@ -3261,6 +3290,7 @@ const app = createApp({
         // 异步加载歌词，不阻塞播放流程
         loadBuiltinLyrics(song);
       } catch (error) {
+        if (currentToken.cancelled) return;
         showAlert('url获取失败，请尝试更换音源或音乐平台', '播放错误');
       }
     };
@@ -3323,7 +3353,13 @@ const app = createApp({
       }
     };
 
-    const playBuiltinNext = () => {
+    const playBuiltinSongWithIndex = async (song, index) => {
+      await playBuiltinSong(song, () => {
+        currentContextIndex.value = index;
+      });
+    };
+
+    const playBuiltinNext = async () => {
       if (currentContextSongs.value.length === 0) return;
 
       let newIndex;
@@ -3336,16 +3372,16 @@ const app = createApp({
 
       const nextSong = currentContextSongs.value[newIndex];
       if (nextSong) {
-        currentContextIndex.value = newIndex;
         if (nextSong.path) {
+          currentContextIndex.value = newIndex;
           playSong(newIndex, currentPlayContext.value, currentContextSongs.value);
         } else {
-          playBuiltinSong(nextSong);
+          await playBuiltinSongWithIndex(nextSong, newIndex);
         }
       }
     };
 
-    const playBuiltinPrev = () => {
+    const playBuiltinPrev = async () => {
       if (currentContextSongs.value.length === 0) return;
 
       let newIndex;
@@ -3358,11 +3394,11 @@ const app = createApp({
 
       const prevSong = currentContextSongs.value[newIndex];
       if (prevSong) {
-        currentContextIndex.value = newIndex;
         if (prevSong.path) {
+          currentContextIndex.value = newIndex;
           playSong(newIndex, currentPlayContext.value, currentContextSongs.value);
         } else {
-          playBuiltinSong(prevSong);
+          await playBuiltinSongWithIndex(prevSong, newIndex);
         }
       }
     };
