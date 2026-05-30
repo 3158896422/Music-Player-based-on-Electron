@@ -43,10 +43,11 @@
     "appId": "com.musicplayer.app",
     "productName": "Music Player",
     "directories": {
-      "output": "build-output-20240325"
+      "output": "build-output-fresh"
     },
     "files": [
       "**/*",
+      "!build-output-fresh/**",
       "!build-output-20240325/**",
       "!release/**",
       "!dist/**",
@@ -66,14 +67,17 @@
         }
       ],
       "icon": "fengmian.ico",
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "highestAvailable"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Music Player"
+      "shortcutName": "Music Player",
+      "deleteAppDataOnUninstall": true,
+      "runAfterFinish": true,
+      "installerSidebar": false
     }
   }
 }

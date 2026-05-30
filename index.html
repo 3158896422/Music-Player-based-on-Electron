@@ -352,7 +352,7 @@
                 class="music-item" 
                 v-for="(song, index) in builtinSearchResults" 
                 :key="index"
-                @dblclick="playBuiltinSong(song)"
+                @dblclick="playSearchResult(song)"
               >
                 <div class="music-item-cover" v-if="song.cover">
                   <img :src="song.cover" :alt="song.title">

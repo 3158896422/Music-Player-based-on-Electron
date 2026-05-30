@@ -87,6 +87,24 @@ function createWindow() {
   mainWindow.on('hide', () => {
     console.log('窗口已隐藏');
   });
+
+  // 绑定 F12 快捷键打开开发者工具
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      event.preventDefault();
+      mainWindow.webContents.toggleDevTools();
+    }
+    // Ctrl+Shift+I 也可以打开开发者工具
+    if (input.control && input.shift && input.key === 'I') {
+      event.preventDefault();
+      mainWindow.webContents.toggleDevTools();
+    }
+    // Ctrl+Shift+J 打开控制台（Console 面板）
+    if (input.control && input.shift && input.key === 'J') {
+      event.preventDefault();
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
 }
 
 function createTray() {
@@ -139,6 +157,14 @@ function registerGlobalShortcuts() {
 }
 
 app.whenReady().then(() => {
+  // 设置应用图标（用于任务管理器等系统位置）
+  const iconPath = path.join(__dirname, 'fengmian.ico');
+  const appIcon = nativeImage.createFromPath(iconPath);
+  if (!appIcon.isEmpty()) {
+    app.setAppUserModelId('com.musicplayer.app');
+    console.log('[main] 应用图标设置成功');
+  }
+  
   loadQrcDecode();
   createWindow();
   createTray();
@@ -312,11 +338,11 @@ ipcMain.on('userApi_openDevTools', (event, apiId) => {
 });
 
 // 监听音源初始化事件（从 preload.js 发送）
-ipcMain.on('userApi_init', (event, { data, status, message }) => {
-  console.log('[main] 收到 userApi_init 事件:', { status, message });
+ipcMain.on('userApi_init', (event, { apiId, data, status, message }) => {
+  console.log('[main] 收到 userApi_init 事件:', { apiId, status, message });
   // 转发给渲染进程
   if (global.mainWindow) {
-    global.mainWindow.webContents.send('userApi_init', { data, status, message });
+    global.mainWindow.webContents.send('userApi_init', { apiId, data, status, message });
   }
 });
 

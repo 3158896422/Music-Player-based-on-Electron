@@ -29,8 +29,11 @@ const createWindow = async (userApi) => {
   
   console.log('✅ 脚本注入命令已发送:', userApi.name);
 
+  const apiId = userApi.id;
   sb.on('closed', () => {
-    delete sandboxes[userApi.id];
+    if (sandboxes[apiId] === sb) {
+      delete sandboxes[apiId];
+    }
   });
 
   return sb;

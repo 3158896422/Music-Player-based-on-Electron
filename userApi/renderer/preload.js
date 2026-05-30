@@ -4,6 +4,7 @@ const zlib = require('zlib');
 const { createCipheriv, publicEncrypt, constants, randomBytes, createHash } = require('crypto');
 
 let isInitedApi = false;
+let currentApiId = null;
 const events = { request: null };
 const EVENT_NAMES = {
   request: 'request',
@@ -16,10 +17,11 @@ const onError = (errorMessage) => {
   if (isInitedApi) return;
   isInitedApi = true;
   if (errorMessage.length > 1024) errorMessage = errorMessage.substring(0, 1024) + '...';
-  ipcRenderer.send('userApi_init', { 
-    data: null, 
-    status: false, 
-    message: errorMessage 
+  ipcRenderer.send('userApi_init', {
+    apiId: currentApiId,
+    data: null,
+    status: false,
+    message: errorMessage
   });
 };
 
@@ -73,18 +75,20 @@ contextBridge.exposeInMainWorld('lx', {
           isInitedApi = true;
           
           if (!data) {
-            ipcRenderer.send('userApi_init', { 
-              data: null, 
-              status: false, 
-              message: 'Missing required parameter init info' 
+            ipcRenderer.send('userApi_init', {
+              apiId: currentApiId,
+              data: null,
+              status: false,
+              message: 'Missing required parameter init info'
             });
             return reject(new Error('Missing required parameter init info'));
           }
-          
-          ipcRenderer.send('userApi_init', { 
+
+          ipcRenderer.send('userApi_init', {
+            apiId: currentApiId,
             data: data,
-            status: true, 
-            message: '' 
+            status: true,
+            message: ''
           });
           resolve();
           break;
@@ -166,6 +170,7 @@ window.addEventListener('unhandledrejection', (event) => {
 // 监听初始化事件，使用 webFrame.executeJavaScript 执行用户脚本
 ipcRenderer.on('userApi_initEnv', (event, userApi) => {
   console.log('收到 userApi_initEnv 事件:', userApi.name);
+  currentApiId = userApi.id;
   
   // 重置初始化状态
   isInitedApi = false;

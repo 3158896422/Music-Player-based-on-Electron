@@ -131,67 +131,81 @@ const app = createApp({
     // 加载默认音源
     const loadDefaultSources = async () => {
       try {
-        // 读取默认音源文件夹
-        const fs = require('fs');
         const path = require('path');
         const defaultSourcesPath = path.join(__dirname, 'default-sources');
         
-        if (fs.existsSync(defaultSourcesPath)) {
-          const files = fs.readdirSync(defaultSourcesPath);
-          let hasNewSources = false;
-          for (const file of files) {
-            if (path.extname(file) === '.js') {
-              const filePath = path.join(defaultSourcesPath, file);
-              try {
-                const content = fs.readFileSync(filePath, 'utf-8');
-                
-                // 解析脚本信息，与手动导入逻辑一致
-                let scriptInfo = { name: path.basename(file, '.js') };
-                try {
-                  scriptInfo = parseScriptInfo(content);
-                } catch (e) {
-                  console.log('解析脚本信息失败，使用文件名作为音源名称:', e.message);
-                }
-                
-                const sourceInfo = {
-                  id: `source_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  name: scriptInfo.name || path.basename(file, '.js'),
-                  version: scriptInfo.version || '1.0.0',
-                  author: scriptInfo.author || '',
-                  description: scriptInfo.description || '',
-                  script: content,
-                  filePath: filePath,
-                  type: 'default'
-                };
-                
-                // 检查是否已存在相同名称的音源
-                const existingIndex = importedSources.value.findIndex(s => s.name === sourceInfo.name);
-                if (existingIndex === -1) {
-                  importedSources.value.push(sourceInfo);
-                  hasNewSources = true;
-                  
-                  // 注册音源到 main.js，与手动导入逻辑一致
-                  try {
-                    await ipcRenderer.invoke('register-source', sourceInfo);
-                    console.log('[app.js] 默认音源注册成功:', sourceInfo.name);
-                  } catch (error) {
-                    console.error('[app.js] 注册默认音源失败:', sourceInfo.name, error.message);
-                  }
-                }
-              } catch (error) {
-                console.error('读取默认音源文件失败:', file, error.message);
-              }
+        const fs = require('fs');
+        if (!fs.existsSync(defaultSourcesPath)) {
+          console.log('[app.js] 默认音源目录不存在:', defaultSourcesPath);
+          return;
+        }
+
+        const files = fs.readdirSync(defaultSourcesPath);
+        console.log('[app.js] 默认音源目录文件列表:', files);
+        let hasNewSources = false;
+
+        for (const file of files) {
+          if (!file.endsWith('.js')) continue;
+
+          const filePath = path.join(defaultSourcesPath, file);
+          console.log('[app.js] 处理默认音源文件:', filePath);
+
+          try {
+            const result = await ipcRenderer.invoke('read-source-file', filePath);
+            if (!result.success) {
+              console.error('[app.js] 读取默认音源文件失败:', file, result.error);
+              continue;
             }
-          }
-          
-          // 如果有新的默认音源，保存到本地存储
-          if (hasNewSources) {
-            saveSourcesToStorage();
-            console.log('[app.js] 默认音源保存到本地存储');
+
+            const content = result.content;
+            const fileName = path.basename(file, '.js');
+            let scriptInfo = { name: fileName };
+            try {
+              scriptInfo = parseScriptInfo(content);
+            } catch (e) {
+              console.log('[app.js] 解析脚本信息失败，使用文件名:', e.message);
+            }
+
+            const sourceName = scriptInfo.name || fileName;
+            const existingSource = importedSources.value.find(s => s.name === sourceName);
+            if (existingSource) {
+              console.log('[app.js] 默认音源已存在，跳过:', sourceName);
+              continue;
+            }
+
+            const sourceInfo = {
+              id: `source_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: sourceName,
+              version: scriptInfo.version || '1.0.0',
+              author: scriptInfo.author || '',
+              description: scriptInfo.description || '',
+              script: content,
+              filePath: filePath,
+              type: 'default'
+            };
+
+            importedSources.value.push(sourceInfo);
+            hasNewSources = true;
+
+            try {
+              await ipcRenderer.invoke('register-source', sourceInfo);
+              console.log('[app.js] 默认音源注册成功:', sourceInfo.name);
+            } catch (error) {
+              console.error('[app.js] 注册默认音源失败:', sourceInfo.name, error.message);
+            }
+          } catch (error) {
+            console.error('[app.js] 处理默认音源文件失败:', file, error.message);
           }
         }
+
+        if (hasNewSources) {
+          saveSourcesToStorage();
+          console.log('[app.js] 默认音源已保存到本地存储');
+        } else {
+          console.log('[app.js] 没有新的默认音源需要添加');
+        }
       } catch (error) {
-        console.error('加载默认音源失败:', error.message);
+        console.error('[app.js] 加载默认音源失败:', error.message);
       }
     };
     
@@ -257,26 +271,7 @@ const app = createApp({
         }
         return false;
       }
-      // 如果是在线歌曲（没有 path）
-      // 检查是否从 favorites/recent/playlist 播放的在线歌曲
-      if (['favorites', 'recent', 'playlist'].includes(currentPlayContext.value)) {
-        // 检查索引是否匹配
-        if (currentContextIndex.value === index) {
-          // 再检查是否是同一首歌（通过 hash、id 或 songmid 匹配）
-          const currentSong = currentContextSongs.value[currentContextIndex.value];
-          if (!currentSong) return false;
-          // 通过 hash 匹配
-          if (song.hash && currentSong.hash && song.hash === currentSong.hash) return true;
-          // 通过 id 匹配
-          if (song.id && currentSong.id && song.id === currentSong.id) return true;
-          // 通过 songmid 匹配
-          if (song.songmid && currentSong.songmid && song.songmid === currentSong.songmid) return true;
-          // 如果没有唯一标识符，检查 title 和 artist
-          return song.title === currentSong.title && song.artist === currentSong.artist;
-        }
-        return false;
-      }
-      // 如果是 builtin 上下文（从搜索结果播放）
+      // 如果是在线歌曲（没有 path），统一从 builtin 上下文判断
       if (currentPlayContext.value === 'builtin') {
         // 检查是否是当前播放的歌曲
         if (currentBuiltinSong.value) {
@@ -284,9 +279,21 @@ const app = createApp({
           if (song.hash && currentBuiltinSong.value.hash && song.hash === currentBuiltinSong.value.hash) return true;
           if (song.id && currentBuiltinSong.value.id && song.id === currentBuiltinSong.value.id) return true;
           if (song.songmid && currentBuiltinSong.value.songmid && song.songmid === currentBuiltinSong.value.songmid) return true;
+          return song.title === currentBuiltinSong.value.title && song.artist === currentBuiltinSong.value.artist;
         }
-        // 检查索引是否匹配
-        return currentContextIndex.value === index;
+        return false;
+      }
+      // 如果是从 favorites/recent/playlist 播放的在线歌曲（理论上不应该出现，因为在线歌曲现在都使用 builtin 上下文）
+      if (['favorites', 'recent', 'playlist'].includes(currentPlayContext.value)) {
+        if (currentContextIndex.value === index) {
+          const currentSong = currentContextSongs.value[currentContextIndex.value];
+          if (!currentSong) return false;
+          if (song.hash && currentSong.hash && song.hash === currentSong.hash) return true;
+          if (song.id && currentSong.id && song.id === currentSong.id) return true;
+          if (song.songmid && currentSong.songmid && song.songmid === currentSong.songmid) return true;
+          return song.title === currentSong.title && song.artist === currentSong.artist;
+        }
+        return false;
       }
       return false;
     };
@@ -556,16 +563,13 @@ const app = createApp({
       } else if (context === 'favorites') {
         if (index < 0 || index >= favorites.value.length) return;
         song = favorites.value[index];
-        // 检查是否是在线歌曲（没有 path）
         if (!song.path) {
-          // 在线歌曲：保持 favorites 上下文，确保播放列表不会跳转到搜索结果
           currentPlayContext.value = 'favorites';
           currentContextSongs.value = [...favorites.value];
           currentContextIndex.value = index;
           playBuiltinSong(song);
           return;
         }
-        // 找到在完整列表中的索引
         const fullIndex = musicFiles.value.findIndex(s => s.path === song.path);
         if (fullIndex === -1) return;
         currentSongIndex.value = fullIndex;
@@ -575,16 +579,13 @@ const app = createApp({
       } else if (context === 'recent') {
         if (index < 0 || index >= recentlyPlayed.value.length) return;
         song = recentlyPlayed.value[index];
-        // 检查是否是在线歌曲（没有 path）
         if (!song.path) {
-          // 在线歌曲：保持 recent 上下文，确保播放列表不会跳转到搜索结果
           currentPlayContext.value = 'recent';
           currentContextSongs.value = [...recentlyPlayed.value];
           currentContextIndex.value = index;
           playBuiltinSong(song);
           return;
         }
-        // 找到在完整列表中的索引
         const fullIndex = musicFiles.value.findIndex(s => s.path === song.path);
         if (fullIndex === -1) return;
         currentSongIndex.value = fullIndex;
@@ -594,9 +595,7 @@ const app = createApp({
       } else if (context === 'playlist' && contextSongs) {
         if (index < 0 || index >= contextSongs.length) return;
         song = contextSongs[index];
-        // 检查是否是在线歌曲（没有 path）
         if (!song.path) {
-          // 在线歌曲：保持 playlist 上下文，确保播放列表不会跳转到搜索结果
           currentPlayContext.value = 'playlist';
           currentContextSongs.value = contextSongs;
           currentContextIndex.value = index;
@@ -2436,37 +2435,42 @@ const app = createApp({
             // 过滤无效的音源对象并检查文件是否存在
             const validSources = [];
             for (const source of parsedData) {
-              if (source && typeof source === 'object' && source.id && source.name && source.filePath) {
-                console.log('[app.js] 检查音源文件:', source.filePath);
-                // 检查文件是否存在
-                const fileExists = await ipcRenderer.invoke('check-file-exists', source.filePath);
-                if (fileExists) {
-                  // 文件存在，重新读取并导入
-                  try {
-                    const result = await ipcRenderer.invoke('read-source-file', source.filePath);
-                    if (result.success) {
-                      // 更新音源信息
-                      const updatedSource = {
-                        ...source,
-                        script: result.content
-                      };
-                      validSources.push(updatedSource);
-                      console.log('[app.js] 重新读取音源文件成功:', source.name);
-                    } else {
-                      console.error('[app.js] 重新读取音源文件失败:', source.name, result.error);
-                      // 文件不存在或读取失败，不添加到有效列表
+              if (source && typeof source === 'object' && source.id && source.name) {
+                console.log('[app.js] 检查音源:', source.name, 'filePath:', source.filePath);
+                let scriptContent = source.script;
+                
+                if (source.filePath) {
+                  const fileExists = await ipcRenderer.invoke('check-file-exists', source.filePath);
+                  if (fileExists) {
+                    try {
+                      const result = await ipcRenderer.invoke('read-source-file', source.filePath);
+                      if (result.success) {
+                        scriptContent = result.content;
+                        console.log('[app.js] 重新读取音源文件成功:', source.name);
+                      } else {
+                        console.log('[app.js] 重新读取失败，使用存储的脚本:', source.name, result.error);
+                      }
+                    } catch (readError) {
+                      console.log('[app.js] 读取异常，使用存储的脚本:', source.name, readError.message);
                     }
-                  } catch (readError) {
-                    console.error('[app.js] 重新读取音源文件异常:', source.name, readError.message);
-                    // 读取失败，不添加到有效列表
+                  } else {
+                    console.log('[app.js] 音源文件不在磁盘，使用存储的脚本内容:', source.name);
                   }
                 } else {
-                  console.error('[app.js] 音源文件不存在:', source.filePath);
-                  // 文件不存在，不添加到有效列表
+                  console.log('[app.js] 无文件路径，使用存储的脚本内容:', source.name);
+                }
+                
+                if (scriptContent) {
+                  const updatedSource = {
+                    ...source,
+                    script: scriptContent
+                  };
+                  validSources.push(updatedSource);
+                } else {
+                  console.error('[app.js] 音源无脚本内容，跳过:', source.name);
                 }
               } else {
                 console.error('[app.js] 无效的音源对象:', source);
-                // 无效的音源对象，不添加到有效列表
               }
             }
             
@@ -2514,6 +2518,16 @@ const app = createApp({
               }
             }
             console.log('[app.js] 已重新注册并加载', validSources.length, '个音源');
+
+            // 切换到第一个音源作为默认活跃音源
+            if (validSources.length > 0) {
+              const firstSource = validSources[0];
+              userApiRendererEvent.setActiveSource(firstSource);
+              sourceManager.currentSource = firstSource;
+              sourceManager.isReady = true;
+              currentSourceId.value = firstSource.id;
+              console.log('[app.js] 默认活跃音源切换到:', firstSource.name);
+            }
           } catch (parseError) {
             console.error('[app.js] 解析音源数据失败:', parseError);
             showAlert('加载音源失败：解析数据出错');
@@ -2541,8 +2555,19 @@ const app = createApp({
           return;
         }
 
+        // 创建纯对象副本，避免 Vue 响应式 Proxy 导致 IPC 序列化问题
+        const plainSource = {
+          id: source.id,
+          name: source.name,
+          version: source.version || '',
+          author: source.author || '',
+          description: source.description || '',
+          script: source.script,
+          filePath: source.filePath || ''
+        };
+
         // 使用 userApiRendererEvent 加载音源
-        await userApiRendererEvent.loadApi(source.id, source);
+        await userApiRendererEvent.loadApi(plainSource.id, plainSource);
         
         // 更新 sourceManager 状态
         sourceManager.currentSource = source;
@@ -2870,14 +2895,32 @@ const app = createApp({
           song.url = urlData;
         } catch (error) {
           console.error('获取播放 URL 失败:', error);
-          // 去掉弹窗提示，只输出日志
+          showAlert('获取播放URL失败，请尝试更换音源或音乐平台', '播放错误');
           return;
         }
       }
       
       if (!song.url) {
-        // 去掉弹窗提示，只输出日志
-        console.error('该歌曲没有音频 URL');
+        showAlert('该歌曲没有可用的播放URL，请尝试更换音源或音乐平台', '播放错误');
+        return;
+      }
+      
+      // 先用 fetch 测试 URL 是否可达，超时 10 秒
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch(song.url, { method: 'HEAD', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+          showAlert('该歌曲播放链接无效（状态码: ' + response.status + '），请尝试更换音源', '播放错误');
+          return;
+        }
+      } catch (fetchError) {
+        if (fetchError.name === 'AbortError') {
+          showAlert('播放链接响应超时（10秒），请尝试更换音源或音乐平台', '播放错误');
+        } else {
+          showAlert('无法连接到播放服务器，请尝试更换音源或音乐平台', '播放错误');
+        }
         return;
       }
       
@@ -2992,6 +3035,19 @@ const app = createApp({
     let lastPlayTime = 0;
     const PLAY_INTERVAL_LIMIT = 1000; // 1 秒内只能切一次歌
 
+    const playSearchResult = (song) => {
+      const songIndex = builtinSearchResults.value.findIndex(s =>
+        (s.hash && song.hash && s.hash === song.hash) ||
+        (s.id && song.id && s.id === song.id) ||
+        (s.songmid && song.songmid && s.songmid === song.songmid)
+      );
+
+      currentPlayContext.value = 'builtin';
+      currentContextSongs.value = [...builtinSearchResults.value];
+      currentContextIndex.value = songIndex >= 0 ? songIndex : 0;
+      playBuiltinSong(song);
+    };
+
     // 播放内置搜索歌曲
     const playBuiltinSong = async (song) => {
       // 防抖限制：1 秒内只能切一次歌
@@ -3014,65 +3070,25 @@ const app = createApp({
 
       if (song.source) {
         try {
-          // 检查是否有用户自定义音源已加载
           if (sourceManager.isSourceReady()) {
-            // 使用用户当前选择的音源获取 URL
             const urlData = await sourceManager.request(song.source, 'musicUrl', {
               type: settings.value.playQuality,
               musicInfo: song
             });
             song.url = urlData;
           } else {
-            // 没有用户自定义音源，使用内置 SDK 获取 URL
-            const urlData = await musicSdk.getMusicUrl(song, settings.value.playQuality);
-            song.url = urlData;
-          }
-        } catch (error) {
-          // 遇到 get url failed 错误时，不弹出弹窗，自动切换到下一首
-          if (error.message === 'get url failed') {
-            playNext();
+            showAlert('请先在设置中加载音源以播放在线音乐', '播放提示');
             return;
           }
-          showAlert('url 获取失败，请尝试更换音源或音乐平台', '播放错误');
+        } catch (error) {
+          console.error('URL 获取失败:', error.message);
+          showAlert('URL 获取失败：' + error.message + '。请尝试在设置中切换到其他可用音源', '播放失败');
           return;
         }
       }
 
       if (!song.url) {
-        showAlert('url获取失败，请尝试更换音源或音乐平台', '播放错误');
         return;
-      }
-
-      // 保存当前播放上下文，用于后续判断
-      const originalPlayContext = currentPlayContext.value;
-      
-      // 检查是否从歌单、最近播放或我喜欢列表播放
-      const isFromPlaylist = ['favorites', 'recent', 'playlist'].includes(originalPlayContext);
-      
-      // 只有从搜索结果播放时才更新上下文为搜索结果列表
-      if (!isFromPlaylist) {
-        // 从搜索结果播放，需要检查同步状态
-        const isContextOutOfSync = currentContextSongs.value.length !== builtinSearchResults.value.length || 
-                                    (currentContextSongs.value.length > 0 && builtinSearchResults.value.length > 0 && 
-                                     currentContextSongs.value[0] !== builtinSearchResults.value[0]);
-        const shouldUpdateContext = currentContextIndex.value < 0 || currentContextSongs.value.length === 0 || isContextOutOfSync;
-        
-        if (shouldUpdateContext) {
-          const songIndex = builtinSearchResults.value.findIndex(s => {
-            // 优先使用 hash 匹配（酷狗音乐）
-            if (s.hash && song.hash && s.hash === song.hash) return true;
-            // 其次使用 id 匹配
-            if (s.id && song.id && s.id === song.id) return true;
-            // 最后使用 songmid 匹配（QQ 音乐等）
-            if (s.songmid && song.songmid && s.songmid === song.songmid) return true;
-            return false;
-          });
-          
-          if (songIndex >= 0) {
-            currentContextSongs.value = [...builtinSearchResults.value];
-            currentContextIndex.value = songIndex;
-          }
-        }
       }
 
       if (audio) {
@@ -3122,11 +3138,6 @@ const app = createApp({
         await audio.play();
         isPlaying.value = true;
         
-        // 始终使用 builtin 上下文，确保封面能正确更新
-        // 这样可以解决从歌单播放后，再去搜索播放时封面不更新的问题
-        currentPlayContext.value = 'builtin';
-        
-        // 先清空再赋值，强制触发响应式更新
         currentBuiltinSong.value = null;
         await nextTick();
         currentBuiltinSong.value = song;
@@ -3502,6 +3513,7 @@ const app = createApp({
       isBuiltinSearching,
       builtinSearchResults,
       performBuiltinSearch,
+      playSearchResult,
       playBuiltinSong
     };
   }
