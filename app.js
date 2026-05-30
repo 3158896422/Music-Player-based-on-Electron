@@ -2518,16 +2518,6 @@ const app = createApp({
               }
             }
             console.log('[app.js] 已重新注册并加载', validSources.length, '个音源');
-
-            // 切换到第一个音源作为默认活跃音源
-            if (validSources.length > 0) {
-              const firstSource = validSources[0];
-              userApiRendererEvent.setActiveSource(firstSource);
-              sourceManager.currentSource = firstSource;
-              sourceManager.isReady = true;
-              currentSourceId.value = firstSource.id;
-              console.log('[app.js] 默认活跃音源切换到:', firstSource.name);
-            }
           } catch (parseError) {
             console.error('[app.js] 解析音源数据失败:', parseError);
             showAlert('加载音源失败：解析数据出错');
@@ -2886,16 +2876,45 @@ const app = createApp({
 
       // 每次播放都根据当前设置的音质重新获取 URL
       if (song.source) {
+        let urlObtained = false;
+        const triedSources = new Set();
+        const currentId = currentSourceId.value;
+        if (currentId) triedSources.add(currentId);
+
         try {
-          // 使用 sourceManager 请求音源脚本获取 URL，使用设置的播放音质
           const urlData = await sourceManager.request(song.source, 'musicUrl', {
             type: settings.value.playQuality,
             musicInfo: song
           });
           song.url = urlData;
-        } catch (error) {
-          console.error('获取播放 URL 失败:', error);
-          showAlert('获取播放URL失败，请尝试更换音源或音乐平台', '播放错误');
+          urlObtained = true;
+        } catch (firstError) {
+          console.warn('[playSourceSong] 当前音源失败:', firstError.message, '，尝试其他音源');
+        }
+
+        if (!urlObtained) {
+          for (const s of importedSources.value) {
+            if (triedSources.has(s.id)) continue;
+            triedSources.add(s.id);
+            try {
+              userApiRendererEvent.setActiveSource(s);
+              sourceManager.currentSource = s;
+              currentSourceId.value = s.id;
+              const urlData = await sourceManager.request(song.source, 'musicUrl', {
+                type: settings.value.playQuality,
+                musicInfo: song
+              });
+              song.url = urlData;
+              urlObtained = true;
+              break;
+            } catch (err) {
+              console.warn('[playSourceSong] 音源', s.name, '也失败:', err.message);
+            }
+          }
+        }
+
+        if (!urlObtained) {
+          showAlert('所有音源都无法获取该歌曲的播放链接', '播放失败');
           return;
         }
       }
@@ -2906,10 +2925,12 @@ const app = createApp({
       }
       
       // 先用 fetch 测试 URL 是否可达，超时 10 秒
+      // QQ音乐(tx)服务器不支持HEAD，改用GET
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(song.url, { method: 'HEAD', signal: controller.signal });
+        const fetchMethod = song.source === 'tx' ? 'GET' : 'HEAD';
+        const response = await fetch(song.url, { method: fetchMethod, signal: controller.signal });
         clearTimeout(timeoutId);
         if (!response.ok) {
           showAlert('该歌曲播放链接无效（状态码: ' + response.status + '），请尝试更换音源', '播放错误');
@@ -3069,25 +3090,105 @@ const app = createApp({
       }
 
       if (song.source) {
-        try {
-          if (sourceManager.isSourceReady()) {
-            const urlData = await sourceManager.request(song.source, 'musicUrl', {
-              type: settings.value.playQuality,
-              musicInfo: song
-            });
-            song.url = urlData;
-          } else {
-            showAlert('请先在设置中加载音源以播放在线音乐', '播放提示');
-            return;
+        if (!sourceManager.isSourceReady()) {
+          showAlert('请先在设置中加载音源以播放在线音乐', '播放提示');
+          return;
+        }
+
+        let urlObtained = false;
+        const triedSources = new Set();
+        const currentId = currentSourceId.value;
+        if (currentId) triedSources.add(currentId);
+
+        const validateUrl = async (url, songSource) => {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const fetchMethod = songSource === 'tx' ? 'GET' : 'HEAD';
+            const response = await fetch(url, { method: fetchMethod, signal: controller.signal, redirect: 'follow' });
+            clearTimeout(timeoutId);
+            if (!response.ok) {
+              console.warn('[playBuiltinSong] URL无效, 状态码:', response.status);
+              return false;
+            }
+            return true;
+          } catch (fetchError) {
+            if (fetchError.name === 'AbortError') {
+              console.warn('[playBuiltinSong] URL响应超时');
+            } else {
+              console.warn('[playBuiltinSong] URL连接失败:', fetchError.message);
+            }
+            return false;
           }
-        } catch (error) {
-          console.error('URL 获取失败:', error.message);
-          showAlert('URL 获取失败：' + error.message + '。请尝试在设置中切换到其他可用音源', '播放失败');
+        };
+
+        const tryGetUrl = async (source, songSrc) => {
+          const urlData = await sourceManager.request(source, 'musicUrl', {
+            type: settings.value.playQuality,
+            musicInfo: song
+          });
+          console.log('[playBuiltinSong] urlData 类型:', typeof urlData, '值:', urlData);
+          if (typeof urlData !== 'string' || !/^https?:/.test(urlData)) {
+            throw new Error('音源返回了无效的URL格式: ' + typeof urlData);
+          }
+          const isValid = await validateUrl(urlData, songSrc);
+          if (!isValid) {
+            throw new Error('音源返回的URL不可达');
+          }
+          return urlData;
+        };
+
+        try {
+          song.url = await tryGetUrl(song.source, song.source);
+          urlObtained = true;
+        } catch (firstError) {
+          console.warn('[playBuiltinSong] 当前音源失败:', firstError.message, '，尝试其他音源');
+        }
+
+        if (!urlObtained) {
+          console.log('[playBuiltinSong] 开始回退循环，音源总数:', importedSources.value.length);
+          for (const s of importedSources.value) {
+            console.log('[playBuiltinSong] 检查音源:', s.name, 'ID:', s.id, '已尝试:', triedSources.has(s.id));
+            if (triedSources.has(s.id)) {
+              console.log('[playBuiltinSong] 跳过已尝试的音源:', s.name);
+              continue;
+            }
+            triedSources.add(s.id);
+            console.log('[playBuiltinSong] 切换到音源:', s.name, '请求平台:', song.source);
+            try {
+              userApiRendererEvent.setActiveSource(s);
+              sourceManager.currentSource = s;
+              currentSourceId.value = s.id;
+              const urlData = await sourceManager.request(song.source, 'musicUrl', {
+                type: settings.value.playQuality,
+                musicInfo: song
+              });
+              console.log('[playBuiltinSong] 音源', s.name, 'urlData 类型:', typeof urlData);
+              if (typeof urlData !== 'string' || !/^https?:/.test(urlData)) {
+                throw new Error('音源返回了无效的URL格式');
+              }
+              const isValid = await validateUrl(urlData, song.source);
+              if (!isValid) {
+                throw new Error('音源返回的URL不可达');
+              }
+              song.url = urlData;
+              urlObtained = true;
+              console.log('[playBuiltinSong] 音源', s.name, '获取URL成功:', urlData.substring(0, 80));
+              break;
+            } catch (err) {
+              console.warn('[playBuiltinSong] 音源', s.name, '失败:', err.message);
+            }
+          }
+        }
+
+        if (!urlObtained) {
+          showAlert('所有音源都无法获取该歌曲的播放链接', '播放失败');
           return;
         }
       }
 
-      if (!song.url) {
+      if (!song.url || typeof song.url !== 'string' || !/^https?:/.test(song.url)) {
+        showAlert('获取到的播放链接无效，请尝试更换音源或音乐平台', '播放错误');
         return;
       }
 
@@ -3131,7 +3232,12 @@ const app = createApp({
       };
 
       audio.onerror = (e) => {
-        showAlert('url获取失败，请尝试更换音源或音乐平台', '播放错误');
+        const audioEl = e.target;
+        const errorCode = audioEl ? audioEl.error?.code : 'unknown';
+        console.error('[playBuiltinSong] Audio错误, code:', errorCode, 'url:', song.url?.substring(0, 100));
+        let errorMsg = 'url获取失败，请尝试更换音源或音乐平台';
+        if (errorCode === 4) errorMsg = '不支持的音频格式，请尝试更换音源';
+        showAlert(errorMsg, '播放错误');
       };
 
       try {

@@ -177,6 +177,25 @@ ipcRenderer.on('trigger-request', async (event, reqId, data) => {
     console.log('[trigger-request] calling events.request with data:', data);
     const response = await events.request(data);
     console.log('[trigger-request] events.request returned:', response);
+
+    switch (data.action) {
+      case 'musicUrl':
+        if (typeof response !== 'string' || response.length > 2048 || !/^https?:/.test(response)) {
+          throw new Error('failed');
+        }
+        break;
+      case 'lyric':
+        if (typeof response !== 'object' || typeof response.lyric !== 'string' || response.lyric.length > 51200) {
+          throw new Error('failed');
+        }
+        break;
+      case 'pic':
+        if (typeof response !== 'string' || response.length > 2048 || !/^https?:/.test(response)) {
+          throw new Error('failed');
+        }
+        break;
+    }
+
     ipcRenderer.send('sandbox-event', 'response', { reqId, response });
   } catch (err) {
     console.error('[trigger-request] error:', err.message);

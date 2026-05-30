@@ -50,21 +50,27 @@ const init = () => {
     }
     if (type === 'response') {
       const { reqId, response } = data;
+      console.log('[rendererEvent] sandbox-event response, reqId:', reqId);
+      console.log('[rendererEvent] requestQueue keys:', Array.from(requestQueue.keys()));
       const request = requestQueue.get(reqId);
 
       if (!request) {
+        console.log('[rendererEvent] response 未匹配到请求队列中的 reqId:', reqId);
         return;
       }
 
       requestQueue.delete(reqId);
       clearRequestTimeout(reqId);
 
+      console.log('[rendererEvent] response 内容:', response);
       request[0](response);
     } else if (type === 'error') {
       const { reqId, msg } = data;
+      console.log('[rendererEvent] sandbox-event error, reqId:', reqId, 'msg:', msg);
       const request = requestQueue.get(reqId);
 
       if (!request) {
+        console.log('[rendererEvent] error 未匹配到请求队列中的 reqId:', reqId);
         return;
       }
 

@@ -73,7 +73,7 @@ ipcMain.on('sandbox-event', (event, type, data) => {
       break;
     }
   }
-  console.log('[sandbox-event] scriptId:', scriptId, 'type:', type);
+  console.log('[sandbox-event] scriptId:', scriptId, 'type:', type, 'data:', JSON.stringify(data));
   if (scriptId && global.mainWindow) {
     global.mainWindow.webContents.send('sandbox-event', scriptId, type, data);
   }
