@@ -2833,7 +2833,10 @@ const app = createApp({
       };
 
       audio.onended = () => {
-        if (settings.value.autoPlayNext) {
+        if (playMode.value === 2) {
+          audio.currentTime = 0;
+          audio.play();
+        } else if (settings.value.autoPlayNext) {
           playBuiltinNext();
         }
       };
@@ -2987,7 +2990,10 @@ const app = createApp({
       };
 
       audio.onended = () => {
-        if (settings.value.autoPlayNext) {
+        if (playMode.value === 2) {
+          audio.currentTime = 0;
+          audio.play();
+        } else if (settings.value.autoPlayNext) {
           playBuiltinNext();
         }
       };
@@ -3241,7 +3247,10 @@ const app = createApp({
       };
 
       audio.onended = () => {
-        if (settings.value.autoPlayNext) {
+        if (playMode.value === 2) {
+          audio.currentTime = 0;
+          audio.play();
+        } else if (settings.value.autoPlayNext) {
           playBuiltinNext();
         }
       };
