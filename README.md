@@ -39,8 +39,6 @@
 | QQ 音乐 | `tx` | 128k / 320k / FLAC |
 | 网易云音乐 | `wy` | 128k / 320k / FLAC |
 | 酷狗音乐 | `kg` | 128k / 320k / FLAC |
-| 酷我音乐 | `kw` | 128k / 320k / FLAC |
-| 咪咕音乐 | `mg` | 128k / 320k / FLAC |
 
 > 音源以插件形式动态加载（`MusicApi/`、`default-sources/`），可自行替换或新增音源插件。
 
