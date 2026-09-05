@@ -18,6 +18,8 @@ if errorlevel 1 (
 rem 检查依赖是否已安装
 if not exist "node_modules" (
     echo [提示] 首次运行，正在安装依赖，请耐心等待...
+    rem 设置 Electron 二进制下载镜像（加速国内下载）
+    set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
     call npm install --registry=https://registry.npmmirror.com
     if errorlevel 1 (
         echo [错误] 依赖安装失败，请检查网络后重试
