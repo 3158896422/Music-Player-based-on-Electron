@@ -19,6 +19,20 @@ log/
 # 源码临时副本
 source_temp_cn/
 
+# 文档
+*.md
+
+# 测试脚本
+test-*.js
+test-*.html
+check-*.js
+compare-*.js
+verify-*.js
+quick-*.js
+
+# 依赖锁定文件
+package-lock.json
+
 # 系统文件
 .DS_Store
 Thumbs.db
