@@ -336,8 +336,6 @@
                 <option value="kg">酷狗音乐</option>
                 <option value="tx">QQ 音乐</option>
                 <option value="wy">网易云音乐</option>
-                <option value="kw">酷我音乐</option>
-                <option value="mg">咪咕音乐</option>
               </select>
               <button class="search-btn" @click="performBuiltinSearch" :disabled="isBuiltinSearching">
                 {{ isBuiltinSearching ? '搜索中...' : '搜索' }}
@@ -349,7 +347,7 @@
               <svg class="empty-icon"><use href="#icon-source"/></svg>
               <h2>搜索在线音乐</h2>
               <p>输入关键词搜索您喜欢的音乐</p>
-              <p style="margin-top: 10px; font-size: 14px; color: #888;">支持酷狗、QQ、网易云、酷我、咪咕音乐五大平台</p>
+              <p style="margin-top: 10px; font-size: 14px; color: #888;">支持酷狗、QQ、网易云音乐三大平台</p>
             </div>
             <div class="loading-state" v-else-if="isBuiltinSearching">
               <svg class="loading-icon spinning"><use href="#icon-album"/></svg>
