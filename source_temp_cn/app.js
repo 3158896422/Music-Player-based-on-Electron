@@ -216,16 +216,6 @@ const app = createApp({
     const builtinSearchSource = ref('all'); // all, kg, tx, kw, wy
     const isBuiltinSearching = ref(false);
     const builtinSearchResults = ref([]);
-
-    // 推荐歌单相关
-    const recommendSource = ref('tx'); // kg / tx / wy
-    const recommendPage = ref(1); // 当前推荐歌单页（刷新时递增换一批）
-    const recommendedPlaylists = ref([]);
-    const isLoadingRecommended = ref(false);
-    const recommendedError = ref('');
-    const currentRecommendedPlaylist = ref(null);
-    const recommendedPlaylistSongs = ref([]);
-    const isLoadingPlaylistDetail = ref(false);
     
     let audio = null;
     let audioContext = null;
@@ -401,8 +391,6 @@ const app = createApp({
       } else if (currentView.value === 'sourceSearch') {
         const source = importedSources.value.find(s => s.id === currentSourceId.value);
         return source ? `搜索 - ${source.name}` : '在线音乐搜索';
-      } else if (currentView.value === 'recommended') {
-        return currentRecommendedPlaylist.value ? currentRecommendedPlaylist.value.name : '推荐歌单';
       }
       const titles = {
         'library': '本地音乐',
@@ -740,9 +728,6 @@ const app = createApp({
         // 解析外部字幕文件
         loadLyricsFile(song.subtitle);
       } else {
-        // 无内嵌歌词也无字幕文件，清空歌词避免残留上一首
-        lyricsLines.value = [];
-        currentLyricIndex.value = -1;
         showSubtitles.value = false;
       }
       
@@ -1355,54 +1340,6 @@ const app = createApp({
           }
         }
       });
-    };
-
-    // ================= 桌面歌词 =================
-    const showDesktopLyric = ref(false);
-    let lastDesktopLyricPayload = '';
-
-    // 向桌面歌词窗口推送当前歌词状态
-    const sendDesktopLyricUpdate = () => {
-      if (!showDesktopLyric.value) return;
-
-      const song = currentSong.value;
-      const lines = lyricsLines.value;
-      const idx = currentLyricIndex.value;
-      const songLabel = song ? `${song.title} - ${song.artist}` : '音乐播放器';
-
-      let text1, text2;
-      if (lines.length === 0) {
-        text1 = songLabel;
-        text2 = '暂无歌词';
-      } else if (idx < 0) {
-        // 歌曲前奏阶段：显示歌曲信息 + 第一句歌词
-        text1 = songLabel;
-        text2 = lines[0].text;
-      } else {
-        text1 = lines[idx].text;
-        text2 = lines[idx + 1] ? lines[idx + 1].text : '';
-      }
-
-      const payload = { text1, text2, playing: isPlaying.value, playMode: playMode.value };
-      const key = JSON.stringify(payload);
-      if (key === lastDesktopLyricPayload) return;
-      lastDesktopLyricPayload = key;
-      ipcRenderer.send('desktop-lyric-update', payload);
-    };
-
-    // 当前行、歌词列表、播放状态、播放模式变化时同步到桌面歌词
-    watch([currentLyricIndex, lyricsLines, isPlaying, playMode, showDesktopLyric], sendDesktopLyricUpdate);
-
-    // 开关桌面歌词
-    const toggleDesktopLyric = () => {
-      showDesktopLyric.value = !showDesktopLyric.value;
-      if (showDesktopLyric.value) {
-        ipcRenderer.send('desktop-lyric-open');
-        sendDesktopLyricUpdate();
-      } else {
-        ipcRenderer.send('desktop-lyric-close');
-      }
-      localStorage.setItem('musicPlayer_desktopLyric', showDesktopLyric.value ? 'true' : 'false');
     };
 
     const isFavorite = (song) => {
@@ -2670,109 +2607,6 @@ const app = createApp({
       return source ? source.name : '';
     };
 
-    // 打开推荐歌单视图
-    const openRecommended = () => {
-      currentView.value = 'recommended';
-      currentRecommendedPlaylist.value = null;
-      showAlbumDetail.value = false;
-      showArtistDetail.value = false;
-      currentAlbum.value = null;
-      currentArtist.value = null;
-      if (recommendedPlaylists.value.length === 0) {
-        loadRecommendedPlaylists();
-      }
-    };
-
-    // 加载推荐歌单（经主进程执行，避免渲染进程 TLS 被平台 WAF 拦截）
-    const loadRecommendedPlaylists = async () => {
-      isLoadingRecommended.value = true;
-      recommendedError.value = '';
-      try {
-        const response = await ipcRenderer.invoke('recommend-playlists', recommendSource.value, recommendPage.value, 30);
-        if (!response.success) {
-          throw new Error(response.error || '获取推荐歌单失败');
-        }
-        let list = response.result.list || [];
-        // 该页没有数据时回退到第一页（避免刷到底后空白）
-        if (list.length === 0 && recommendPage.value > 1) {
-          recommendPage.value = 1;
-          const retry = await ipcRenderer.invoke('recommend-playlists', recommendSource.value, 1, 30);
-          if (retry.success) {
-            list = retry.result.list || [];
-          }
-        }
-        recommendedPlaylists.value = list;
-      } catch (error) {
-        console.error('[app.js] 获取推荐歌单失败:', error.message);
-        recommendedError.value = error.message;
-        recommendedPlaylists.value = [];
-      } finally {
-        isLoadingRecommended.value = false;
-      }
-    };
-
-    // 刷新推荐歌单（换一批）
-    const refreshRecommended = () => {
-      recommendPage.value += 1;
-      loadRecommendedPlaylists();
-    };
-
-    // 打开歌单详情（经主进程执行）
-    const openRecommendedPlaylist = async (playlist) => {
-      currentRecommendedPlaylist.value = playlist;
-      recommendedPlaylistSongs.value = [];
-      isLoadingPlaylistDetail.value = true;
-      try {
-        // Vue 响应式代理对象无法通过 IPC 结构化克隆，先转为纯 JSON 对象
-        const plainPlaylist = JSON.parse(JSON.stringify({
-          id: playlist.id,
-          source: playlist.source,
-          name: playlist.name,
-          cover: playlist.cover,
-          playCount: playlist.playCount,
-          songCount: playlist.songCount,
-          creator: playlist.creator
-        }));
-        const response = await ipcRenderer.invoke('playlist-detail', plainPlaylist);
-        if (!response.success) {
-          throw new Error(response.error || '获取歌单详情失败');
-        }
-        const result = response.result;
-        // 保留列表信息（名称、封面等）
-        if (result.playlist) {
-          currentRecommendedPlaylist.value = Object.assign({}, playlist, result.playlist);
-        }
-        recommendedPlaylistSongs.value = result.songs || [];
-      } catch (error) {
-        console.error('[app.js] 获取歌单详情失败:', error.message);
-        showAlert('获取歌单详情失败：' + error.message);
-      } finally {
-        isLoadingPlaylistDetail.value = false;
-      }
-    };
-
-    // 返回推荐歌单列表
-    const backToRecommended = () => {
-      currentRecommendedPlaylist.value = null;
-      recommendedPlaylistSongs.value = [];
-    };
-
-    // 播放推荐歌单中的歌曲
-    const playRecommendedSong = (song, index) => {
-      currentPlayContext.value = 'builtin';
-      currentContextSongs.value = recommendedPlaylistSongs.value;
-      currentContextIndex.value = index;
-      playBuiltinSong(song);
-    };
-
-    // 切换推荐歌单平台时重新加载
-    watch(recommendSource, () => {
-      recommendPage.value = 1;
-      if (currentView.value === 'recommended') {
-        loadRecommendedPlaylists();
-      }
-    });
-
     const selectCurrentSource = async () => {
       if (!currentSourceId.value) {
         return;
@@ -3618,19 +3452,6 @@ const app = createApp({
     ipcRenderer.on('play-pause', togglePlay);
     ipcRenderer.on('previous-song', previousSong);
     ipcRenderer.on('next-song', nextSong);
-    ipcRenderer.on('toggle-play-mode', togglePlayMode);
-
-    // 桌面歌词：窗口被关闭（如点击悬浮窗关闭按钮）时同步状态
-    ipcRenderer.on('desktop-lyric-closed', () => {
-      showDesktopLyric.value = false;
-      localStorage.setItem('musicPlayer_desktopLyric', 'false');
-    });
-
-    // 桌面歌词：窗口就绪后立即推送当前歌词状态
-    ipcRenderer.on('desktop-lyric-ready', () => {
-      lastDesktopLyricPayload = '';
-      sendDesktopLyricUpdate();
-    });
 
     onMounted(async () => {
       document.addEventListener('keydown', handleKeyDown);
@@ -3669,15 +3490,6 @@ const app = createApp({
       
       // 加载已保存的导入路径并扫描音乐
       await loadImportedPathsAndScan();
-
-      // 恢复桌面歌词（上次开启过则自动打开）
-      if (localStorage.getItem('musicPlayer_desktopLyric') === 'true') {
-        setTimeout(() => {
-          showDesktopLyric.value = true;
-          ipcRenderer.send('desktop-lyric-open');
-          sendDesktopLyricUpdate();
-        }, 1200);
-      }
     });
 
     onUnmounted(() => {
@@ -3758,8 +3570,6 @@ const app = createApp({
       lyricsContent,
       lyricsLines,
       currentLyricIndex,
-      showDesktopLyric,
-      toggleDesktopLyric,
       handleLyricsScroll,
       seekToLyric,
       // 歌单相关
@@ -3855,22 +3665,7 @@ const app = createApp({
       builtinSearchResults,
       performBuiltinSearch,
       playSearchResult,
-      playBuiltinSong,
-      // 推荐歌单相关
-      recommendSource,
-      recommendPage,
-      recommendedPlaylists,
-      isLoadingRecommended,
-      recommendedError,
-      currentRecommendedPlaylist,
-      recommendedPlaylistSongs,
-      isLoadingPlaylistDetail,
-      openRecommended,
-      loadRecommendedPlaylists,
-      refreshRecommended,
-      openRecommendedPlaylist,
-      backToRecommended,
-      playRecommendedSong
+      playBuiltinSong
     };
   }
 });

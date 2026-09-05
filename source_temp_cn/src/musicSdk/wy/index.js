@@ -74,109 +74,6 @@ async function search(keyword, page = 1, limit = 30) {
   }
 }
 
-// 网易云音乐推荐歌单（热门歌单，offset 分页）
-async function getRecommendPlaylists(page = 1, limit = 30) {
-  try {
-    const url = 'https://music.163.com/api/playlist/list';
-    const params = {
-      cat: '全部',
-      order: 'hot',
-      offset: (page - 1) * limit,
-      limit: limit
-    };
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://music.163.com/',
-      'Cookie': 'os=pc; appver=2.9.7'
-    };
-
-    const response = await axios.get(url, { params, headers, timeout: 30000 });
-    const data = response.data;
-
-    if (data.code !== 200 || !data.playlists) {
-      throw new Error('获取推荐歌单失败');
-    }
-
-    const playlists = data.playlists.map(pl => ({
-      id: String(pl.id),
-      name: pl.name || '未知歌单',
-      cover: pl.coverImgUrl || null,
-      playCount: pl.playCount || 0,
-      songCount: pl.trackCount || 0,
-      creator: pl.creator ? pl.creator.nickname : '',
-      source: 'wy'
-    }));
-
-    return {
-      list: playlists,
-      total: data.total || playlists.length,
-      source: 'wy'
-    };
-  } catch (error) {
-    console.error('[网易云音乐] 获取推荐歌单错误:', error.message);
-    throw error;
-  }
-}
-
-// 网易云音乐歌单详情（获取歌单内歌曲）
-async function getPlaylistDetail(playlist) {
-  try {
-    const id = playlist.dissid || playlist.id;
-    if (!id) {
-      throw new Error('缺少歌单 ID');
-    }
-
-    const url = 'https://music.163.com/api/playlist/detail';
-    const params = { id: id };
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://music.163.com/',
-      'Cookie': 'os=pc; appver=2.9.7'
-    };
-
-    const response = await axios.get(url, { params, headers, timeout: 30000 });
-    const data = response.data;
-
-    if (data.code !== 200 || !data.result || !data.result.tracks) {
-      throw new Error('获取歌单详情失败');
-    }
-
-    const result = data.result;
-    const songs = result.tracks.map(song => {
-      const artists = song.artists || [];
-      const album = song.album || {};
-      return {
-        id: song.id,
-        title: song.name || '未知歌曲',
-        artist: artists.map(a => a.name).join('&'),
-        album: album.name || '未知专辑',
-        duration: formatDuration(song.dt || 0),
-        durationSec: Math.floor((song.dt || 0) / 1000),
-        songmid: song.id,
-        albummid: album.id || null,
-        source: 'wy',
-        cover: album.picUrl || null
-      };
-    });
-
-    return {
-      playlist: {
-        id: String(id),
-        name: result.name || playlist.name || '歌单',
-        cover: result.coverImgUrl || playlist.cover || null,
-        creator: (result.creator && result.creator.nickname) || playlist.creator || '',
-        source: 'wy'
-      },
-      songs,
-      total: result.trackCount || songs.length,
-      source: 'wy'
-    };
-  } catch (error) {
-    console.error('[网易云音乐] 获取歌单详情错误:', error.message);
-    throw error;
-  }
-}
-
 // 获取歌词
 async function getLyric(songInfo) {
   try {
@@ -239,7 +136,5 @@ function formatDuration(ms) {
 
 module.exports = {
   search,
-  getRecommendPlaylists,
-  getPlaylistDetail,
   getLyric
 };

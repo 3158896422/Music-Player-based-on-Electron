@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>桌面歌词</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+      cursor: default;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      /* 窗口空白区域鼠标穿透，不遮挡下方应用 */
+      pointer-events: none;
+    }
+
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+
+    .dl-wrap {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+    }
+
+    .dl-bar {
+      pointer-events: auto;
+      -webkit-app-region: drag;
+      position: relative;
+      width: calc(100% - 16px);
+      margin-top: 6px;
+      padding: 12px 30px 14px;
+      /* 默认全透明，只显示歌词文字；悬停时才浮现淡黑色背景 */
+      background: transparent;
+      /* 偏矩形的小圆角 */
+      border-radius: 12px;
+      text-align: center;
+      transition: background 0.2s ease, opacity 0.25s ease;
+    }
+
+    .dl-bar:hover,
+    .dl-bar.hover {
+      /* 背景透明度更高（更淡），黑色 X 与淡背景区分明显 */
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    .dl-bar.paused {
+      opacity: 0.45;
+    }
+
+    .dl-line1 {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      background: linear-gradient(90deg, #ff2d55, #ff7a45);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      /* 无背景时靠阴影保证任意壁纸上可读 */
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px rgba(0, 0, 0, 0.5));
+    }
+
+    .dl-line2 {
+      font-size: 18px;
+      line-height: 1.4;
+      color: rgba(255, 255, 255, 0.85);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 6px rgba(0, 0, 0, 0.5);
+    }
+
+    /* 悬停时显示在背景右上角的关闭按钮（跟随 .hover，由主进程轮询驱动） */
+    /* 悬停工具条：容器不拦截点击，只有按钮本身可点 */
+    .dl-toolbar {
+      position: absolute;
+      top: 2px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .dl-bar.hover .dl-toolbar {
+      opacity: 1;
+    }
+
+    .dl-toolbar button {
+      -webkit-app-region: no-drag;
+      pointer-events: auto;
+      width: 26px;
+      height: 26px;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: #ffffff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s ease, filter 0.15s ease;
+    }
+
+    .dl-toolbar button:hover {
+      /* 鼠标放到按钮上时 X 发亮（白色光晕） */
+      color: #ffffff;
+      filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.95));
+    }
+
+    .dl-toolbar button svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* 悬停时显示在背景右侧的播放控制按钮组
+       注意：不能用 transform 做垂直居中——拖拽区域内的 CSS transform
+       会导致子按钮命中区域不跟随偏移（Electron 已知问题） */
+    .dl-controls {
+      position: absolute;
+      top: 12px;
+      bottom: 14px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .dl-bar.hover .dl-controls {
+      opacity: 1;
+    }
+
+    .dl-controls button {
+      -webkit-app-region: no-drag;
+      pointer-events: auto;
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.85);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s ease, filter 0.15s ease;
+    }
+
+    .dl-controls button:hover {
+      color: #ffffff;
+      filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.9));
+    }
+
+    /* 当前播放模式对应的按钮高亮为主题色 */
+    .dl-controls button.mode-active {
+      color: #ff2d55;
+    }
+
+    .dl-controls button svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* 给歌词行留出右侧控制按钮的空间，避免长歌词压到按钮；
+       pointer-events:none 防止整行空白盒子挡住按钮点击 */
+    .dl-line1,
+    .dl-line2 {
+      padding: 0 132px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="dl-wrap">
+    <div class="dl-bar" id="dlBar">
+      <div class="dl-toolbar">
+        <button id="dlClose" title="关闭桌面歌词">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="dl-controls">
+        <button id="dlMode" title="切换播放模式">
+          <svg viewBox="0 0 24 24" id="dlModeShuffle"><path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+          <svg viewBox="0 0 24 24" id="dlModeRepeat" style="display:none"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+          <svg viewBox="0 0 24 24" id="dlModeRepeatOne" style="display:none"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg>
+        </button>
+        <button id="dlPrev" title="上一首">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button id="dlPlay" title="播放/暂停">
+          <svg viewBox="0 0 24 24" id="dlIconPlay"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+          <svg viewBox="0 0 24 24" id="dlIconPause" style="display:none"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button id="dlNext" title="下一首">
+          <svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+      <div class="dl-line1" id="dlLine1">音乐播放器</div>
+      <div class="dl-line2" id="dlLine2">暂无歌词</div>
+    </div>
+  </div>
+  <script src="desktop-lyric.js"></script>
+</body>
+</html>

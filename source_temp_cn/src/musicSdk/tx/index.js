@@ -60,122 +60,6 @@ async function search(keyword, page = 1, limit = 30) {
   }
 }
 
-// QQ 音乐推荐歌单（首页精选歌单）
-async function getRecommendPlaylists(page = 1, limit = 30) {
-  try {
-    const url = 'https://c.y.qq.com/splcloud/fcgi-bin/fcg_get_diss_by_tag.fcg';
-    const params = {
-      format: 'json',
-      inCharset: 'utf-8',
-      outCharset: 'utf-8',
-      categoryId: 10000000, // 10000000 = 推荐
-      sortId: 5,            // 5 = 最热
-      sin: (page - 1) * limit,
-      ein: (page - 1) * limit + limit - 1,
-      page: 0
-    };
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://y.qq.com/'
-    };
-
-    const response = await axios.get(url, { params, headers, timeout: 30000 });
-    const data = response.data;
-
-    if (data.code !== 0 || !data.data || !data.data.list) {
-      throw new Error('获取推荐歌单失败');
-    }
-
-    const playlists = data.data.list.map(pl => ({
-      id: String(pl.dissid),
-      name: pl.dissname,
-      cover: pl.imgurl || null,
-      playCount: pl.listennum || 0,
-      songCount: pl.song_count || pl.songnum || 0,
-      creator: pl.creator ? pl.creator.name : '',
-      source: 'tx'
-    }));
-
-    return {
-      list: playlists,
-      total: data.data.sum || playlists.length,
-      source: 'tx'
-    };
-  } catch (error) {
-    console.error('[QQ 音乐] 获取推荐歌单错误:', error.message);
-    throw error;
-  }
-}
-
-// QQ 音乐歌单详情（获取歌单内歌曲）
-async function getPlaylistDetail(playlist) {
-  try {
-    const dissid = playlist.dissid || playlist.id;
-    if (!dissid) {
-      throw new Error('缺少歌单 ID');
-    }
-
-    const url = 'https://c.y.qq.com/v8/fcg-bin/fcg_v8_playlist_cp.fcg';
-    const params = {
-      format: 'json',
-      id: dissid,
-      newsong: 1,
-      inCharset: 'utf8',
-      outCharset: 'utf-8',
-      platform: 'yqq.json'
-    };
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://y.qq.com/'
-    };
-
-    const response = await axios.get(url, { params, headers, timeout: 30000 });
-    const data = response.data;
-
-    if (data.code !== 0 || !data.data || !data.data.cdlist || !data.data.cdlist[0]) {
-      throw new Error('获取歌单详情失败');
-    }
-
-    const cd = data.data.cdlist[0];
-    const rawSongs = cd.songlist || [];
-
-    const songs = rawSongs.map(song => {
-      const singer = song.singer || [];
-      const album = song.album || {};
-      return {
-        id: song.mid,
-        title: song.name || song.title || '未知歌曲',
-        artist: singer.map(s => s.name).join('&'),
-        album: album.name || album.title || '未知专辑',
-        duration: formatDuration(song.interval),
-        songmid: song.mid,
-        songid: song.id,
-        albummid: album.mid,
-        mediaMid: song.file ? song.file.media_mid : null,
-        singer: singer,
-        source: 'tx',
-        cover: album.mid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${album.mid}.jpg` : null
-      };
-    });
-
-    return {
-      playlist: {
-        id: String(cd.disstid || cd.dissid),
-        name: cd.dissname,
-        cover: cd.logo || null,
-        creator: cd.nickname || '',
-        source: 'tx'
-      },
-      songs,
-      total: cd.total_song_num || songs.length,
-      source: 'tx'
-    };
-  } catch (error) {
-    console.error('[QQ 音乐] 获取歌单详情错误:', error.message);
-    throw error;
-  }
-}
-
 // 获取歌曲详情（获取 songID）
 async function getSongDetail(songmid) {
   try {
@@ -351,8 +235,6 @@ function formatDuration(seconds) {
 
 module.exports = {
   search,
-  getRecommendPlaylists,
-  getPlaylistDetail,
   getLyric,
   getSongDetail
 };

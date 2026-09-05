@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mm = require('music-metadata');
@@ -6,7 +6,6 @@ const axios = require('axios');
 const { createInflate, constants: zlibConstants } = require('zlib');
 const NodeID3 = require('node-id3');
 const { setMeta } = require('./src/musicMeta');
-const musicSdk = require('./src/musicSdk');
 
 let mainWindow;
 let tray;
@@ -203,142 +202,6 @@ ipcMain.on('window-maximize', () => {
 
 ipcMain.on('window-close', () => {
   mainWindow.hide();
-});
-
-// ============ 桌面歌词窗口 ============
-let lyricsWindow = null;
-let lyricsHoverTimer = null;
-let lyricsHoverState = false;
-const lyricsPosPath = () => path.join(app.getPath('userData'), 'desktop-lyric-pos.json');
-
-function createLyricsWindow() {
-  // 读取上次保存的位置
-  let savedPos = null;
-  try {
-    if (fs.existsSync(lyricsPosPath())) {
-      savedPos = JSON.parse(fs.readFileSync(lyricsPosPath(), 'utf-8'));
-    }
-  } catch (e) {
-    savedPos = null;
-  }
-
-  // 默认显示在主屏幕底部居中
-  const workArea = screen.getPrimaryDisplay().workArea;
-  let x, y;
-  if (savedPos && typeof savedPos.x === 'number' && typeof savedPos.y === 'number') {
-    x = savedPos.x;
-    y = savedPos.y;
-  } else {
-    x = Math.round(workArea.x + (workArea.width - 900) / 2);
-    y = Math.round(workArea.y + workArea.height - 170);
-  }
-
-  lyricsWindow = new BrowserWindow({
-    width: 900,
-    height: 150,
-    x,
-    y,
-    frame: false,
-    transparent: true,
-    hasShadow: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    show: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      sandbox: false
-    }
-  });
-
-  lyricsWindow.setAlwaysOnTop(true, 'screen-saver');
-  lyricsWindow.loadFile('desktop-lyric.html');
-  // 默认整体鼠标穿透；是否悬停在歌词上由主进程轮询判断后动态切换
-  // （不用 forward 事件坐标判断：DPI 缩放下转发坐标不可靠，会与可见歌词错位）
-  lyricsWindow.setIgnoreMouseEvents(true);
-  lyricsWindow.once('ready-to-show', () => lyricsWindow.show());
-
-  // 轮询检测光标是否悬停在歌词上：在 → 可交互（可拖动/点关闭按钮），不在 → 穿透
-  // getBounds() 与 getCursorScreenPoint() 都是屏幕 DIP 坐标，缩放下不会错位
-  lyricsHoverState = false;
-  lyricsHoverTimer = setInterval(() => {
-    if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
-    const b = lyricsWindow.getBounds();
-    const p = screen.getCursorScreenPoint();
-    // 歌词条在窗口内约占 y 6..110，上下各加 10px 余量
-    const inside = p.x >= b.x && p.x <= b.x + b.width &&
-      p.y >= b.y - 10 && p.y <= b.y + 112;
-    if (inside !== lyricsHoverState) {
-      lyricsHoverState = inside;
-      lyricsWindow.setIgnoreMouseEvents(!inside);
-      lyricsWindow.webContents.send('lyric-hover', inside);
-    }
-  }, 120);
-
-  // 移动结束后防抖保存位置
-  let saveTimer = null;
-  lyricsWindow.on('moved', () => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      if (!lyricsWindow || lyricsWindow.isDestroyed()) return;
-      const [cx, cy] = lyricsWindow.getPosition();
-      try {
-        fs.writeFileSync(lyricsPosPath(), JSON.stringify({ x: cx, y: cy }));
-      } catch (e) { }
-    }, 500);
-  });
-
-  lyricsWindow.on('closed', () => {
-    clearInterval(lyricsHoverTimer);
-    lyricsHoverTimer = null;
-    lyricsHoverState = false;
-    lyricsWindow = null;
-    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-      global.mainWindow.webContents.send('desktop-lyric-closed');
-    }
-  });
-}
-
-// 打开桌面歌词窗口
-ipcMain.on('desktop-lyric-open', () => {
-  if (!lyricsWindow || lyricsWindow.isDestroyed()) {
-    createLyricsWindow();
-  } else {
-    lyricsWindow.show();
-  }
-});
-
-// 关闭桌面歌词窗口
-ipcMain.on('desktop-lyric-close', () => {
-  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-    lyricsWindow.close();
-  }
-});
-
-// 歌词窗口加载完成，通知主窗口推送当前歌词状态
-ipcMain.on('desktop-lyric-ready', () => {
-  if (global.mainWindow && !global.mainWindow.isDestroyed()) {
-    global.mainWindow.webContents.send('desktop-lyric-ready');
-  }
-});
-
-// 主窗口 → 歌词窗口 转发歌词数据
-ipcMain.on('desktop-lyric-update', (event, payload) => {
-  if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-    lyricsWindow.webContents.send('lyric-update', payload);
-  }
-});
-
-// 歌词窗口 → 主窗口 转发播放控制命令（播放/暂停、上/下一首、切换播放模式）
-ipcMain.on('desktop-lyric-control', (event, action) => {
-  const allowed = ['play-pause', 'previous-song', 'next-song', 'toggle-play-mode'];
-  if (allowed.includes(action) && global.mainWindow && !global.mainWindow.isDestroyed()) {
-    global.mainWindow.webContents.send(action);
-  }
 });
 
 // 选择音乐文件夹或文件
@@ -1037,26 +900,5 @@ ipcMain.handle('tx-decode-lyric', async (event, { lrc, tlrc, rlrc }) => {
       tlyric: '',
       rlyric: ''
     };
-  }
-});
-
-// 推荐歌单 IPC（渲染进程的 TLS 指纹会被 QQ 音乐的 WAF 拦截，需在主进程执行）
-ipcMain.handle('recommend-playlists', async (event, source, page, limit) => {
-  try {
-    const result = await musicSdk.getRecommendPlaylists(source, page || 1, limit || 30);
-    return { success: true, result };
-  } catch (error) {
-    console.error('[main] 获取推荐歌单失败:', error.message);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('playlist-detail', async (event, playlist) => {
-  try {
-    const result = await musicSdk.getPlaylistDetail(playlist);
-    return { success: true, result };
-  } catch (error) {
-    console.error('[main] 获取歌单详情失败:', error.message);
-    return { success: false, error: error.message };
   }
 });

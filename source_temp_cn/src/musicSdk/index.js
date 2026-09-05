@@ -42,35 +42,6 @@ async function searchMusic(keyword, page = 1, limit = 30, source = 'all') {
   }
 }
 
-// 获取推荐歌单
-async function getRecommendPlaylists(source, page = 1, limit = 30) {
-  switch (source) {
-    case 'kg':
-      return kg.getRecommendPlaylists(page, limit);
-    case 'tx':
-      return tx.getRecommendPlaylists(page, limit);
-    case 'wy':
-      return wy.getRecommendPlaylists(page, limit);
-    default:
-      throw new Error('不支持的音源：' + source);
-  }
-}
-
-// 获取歌单详情（歌单内歌曲）
-async function getPlaylistDetail(playlist) {
-  const source = playlist.source;
-  switch (source) {
-    case 'kg':
-      return kg.getPlaylistDetail(playlist);
-    case 'tx':
-      return tx.getPlaylistDetail(playlist);
-    case 'wy':
-      return wy.getPlaylistDetail(playlist);
-    default:
-      throw new Error('不支持的音源：' + source);
-  }
-}
-
 // 获取歌词
 async function getLyric(songInfo) {
   const source = songInfo.source;
@@ -106,8 +77,6 @@ async function getPic(songInfo) {
 module.exports = {
   sources,
   searchMusic,
-  getRecommendPlaylists,
-  getPlaylistDetail,
   getLyric,
   getPic
 };
